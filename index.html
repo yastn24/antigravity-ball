@@ -1,15 +1,12 @@
-<!DOCTYPE html>
+# Correcting physics for oriented box collision (OBB/AABB) and adding features
+html_code = """<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Juego Neón Antigravedad - Modo Arcade Mejorado</title>
+  <title>Juego Neón Antigravedad - Ultra Arcade</title>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       background-color: #05050d;
       color: #fff;
@@ -23,31 +20,28 @@
     }
     #game-container {
       position: relative;
-      box-shadow: 0 0 30px rgba(0, 240, 255, 0.3);
+      box-shadow: 0 0 35px rgba(0, 240, 255, 0.35);
       border-radius: 12px;
       overflow: hidden;
       border: 2px solid #00f0ff;
     }
-    canvas {
-      display: block;
-      background: #08081a;
-    }
+    canvas { display: block; background: #08081a; }
     .hud {
       position: absolute;
       top: 15px;
-      left: 20px;
-      right: 20px;
+      left: 15px;
+      right: 15px;
       display: flex;
       justify-content: space-between;
       pointer-events: none;
-      font-size: 18px;
+      font-size: 16px;
       font-weight: bold;
       text-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
     }
     .hud-box {
-      background: rgba(10, 10, 30, 0.65);
-      padding: 8px 16px;
-      border-radius: 20px;
+      background: rgba(10, 10, 30, 0.75);
+      padding: 6px 14px;
+      border-radius: 18px;
       border: 1px solid rgba(0, 240, 255, 0.4);
     }
     .level-up-text {
@@ -55,17 +49,63 @@
       top: 40%;
       left: 50%;
       transform: translate(-50%, -50%) scale(0);
-      font-size: 42px;
+      font-size: 40px;
       font-weight: 900;
       color: #ff007f;
       text-shadow: 0 0 20px #ff007f, 0 0 40px #00f0ff;
       pointer-events: none;
       transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s;
       opacity: 0;
+      text-align: center;
     }
     .level-up-text.show {
-      transform: translate(-50%, -50%) scale(1.2);
+      transform: translate(-50%, -50%) scale(1.1);
       opacity: 1;
+    }
+    #game-over-screen {
+      position: absolute;
+      inset: 0;
+      background: rgba(5, 5, 13, 0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s;
+    }
+    #game-over-screen.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #game-over-screen h1 {
+      font-size: 50px;
+      color: #ff0055;
+      text-shadow: 0 0 20px #ff0055;
+      margin-bottom: 10px;
+    }
+    #game-over-screen p {
+      font-size: 20px;
+      margin-bottom: 25px;
+      color: #00f0ff;
+    }
+    .btn-restart {
+      background: #00f0ff;
+      color: #05050d;
+      border: none;
+      padding: 12px 28px;
+      font-size: 18px;
+      font-weight: bold;
+      border-radius: 25px;
+      cursor: pointer;
+      box-shadow: 0 0 15px #00f0ff;
+      transition: transform 0.2s, background 0.2s;
+    }
+    .btn-restart:hover {
+      transform: scale(1.08);
+      background: #ff007f;
+      color: #fff;
+      box-shadow: 0 0 20px #ff007f;
     }
   </style>
 </head>
@@ -74,11 +114,19 @@
   <div id="game-container">
     <div class="hud">
       <div class="hud-box">PUNTOS: <span id="score">0</span></div>
-      <div class="hud-box" style="color: #ff007f;">NIVEL: <span id="level">1</span></div>
+      <div class="hud-box" style="color: #ff007f;">VIDAS: <span id="lives">❤️❤️❤️</span></div>
       <div class="hud-box" style="color: #ffe600;">COMBO: <span id="combo">x1</span></div>
       <div class="hud-box" style="color: #00f0ff;">TIEMPO: <span id="timer">5.0</span>s</div>
     </div>
+    
     <div id="level-msg" class="level-up-text">¡NIVEL COMPLETADO!</div>
+
+    <div id="game-over-screen">
+      <h1>¡GAME OVER!</h1>
+      <p>Puntuación Final: <span id="final-score">0</span></p>
+      <button class="btn-restart" onclick="restartGame()">Jugar de Nuevo</button>
+    </div>
+
     <canvas id="canvas" width="800" height="600"></canvas>
   </div>
 
@@ -86,21 +134,25 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
-    const levelEl = document.getElementById('level');
+    const livesEl = document.getElementById('lives');
     const comboEl = document.getElementById('combo');
     const timerEl = document.getElementById('timer');
     const levelMsg = document.getElementById('level-msg');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const finalScoreEl = document.getElementById('final-score');
 
     const WIDTH = canvas.width;
     const HEIGHT = canvas.height;
     const CENTER = { x: WIDTH / 2, y: HEIGHT / 2 };
 
-    // Estado del juego
+    // Estado global
     let score = 0;
     let level = 1;
+    let lives = 3;
     let currentCombo = 1;
+    let isGameOver = false;
 
-    // Propiedades de la Bola
+    // Bola
     const ball = {
       x: CENTER.x,
       y: CENTER.y,
@@ -111,34 +163,34 @@
       isLaunched: false,
       isReturning: false,
       launchTime: 0,
-      maxFlightTime: 5000 // 5 segundos de vuelo libre
+      maxFlightTime: 5000,
+      collectedCoinsThisLaunch: 0,
+      magnetActive: false,
+      magnetTimer: 0
     };
 
     // Arrays de objetos
     let obstacles = [];
     let coins = [];
-    let blackHoles = [];
+    let superMagnets = [];
+    let portals = [];
     let particles = [];
     let trail = [];
 
-    // Web Audio API para Efectos de Sonido
+    // Web Audio API
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let audioCtx = null;
 
     function initAudio() {
-      if (!audioCtx) {
-        audioCtx = new AudioContext();
-      }
+      if (!audioCtx) audioCtx = new AudioContext();
     }
 
     function playSound(type) {
       if (!audioCtx) return;
-      
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-
       const now = audioCtx.currentTime;
 
       if (type === 'launch') {
@@ -147,102 +199,130 @@
         osc.frequency.exponentialRampToValueAtTime(600, now + 0.15);
         gain.gain.setValueAtTime(0.3, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-        osc.start(now);
-        osc.stop(now + 0.15);
+        osc.start(now); osc.stop(now + 0.15);
       } else if (type === 'coin') {
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(523.25, now); // C5
-        osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
-        osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
+        osc.frequency.setValueAtTime(523.25, now);
+        osc.frequency.setValueAtTime(659.25, now + 0.08);
         gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
-        osc.start(now);
-        osc.stop(now + 0.25);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        osc.start(now); osc.stop(now + 0.2);
       } else if (type === 'bounce') {
         osc.type = 'square';
         osc.frequency.setValueAtTime(120, now);
-        osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
-        gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-        osc.start(now);
-        osc.stop(now + 0.1);
-      } else if (type === 'return') {
+        osc.frequency.exponentialRampToValueAtTime(40, now + 0.08);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+        osc.start(now); osc.stop(now + 0.08);
+      } else if (type === 'break') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(80, now + 0.2);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        osc.start(now); osc.stop(now + 0.2);
+      } else if (type === 'portal') {
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(400, now);
-        osc.frequency.exponentialRampToValueAtTime(150, now + 0.3);
+        osc.frequency.setValueAtTime(300, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.25);
         gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+        osc.start(now); osc.stop(now + 0.25);
+      } else if (type === 'magnet') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.setValueAtTime(880, now + 0.1);
+        gain.gain.setValueAtTime(0.3, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-        osc.start(now);
-        osc.stop(now + 0.3);
+        osc.start(now); osc.stop(now + 0.3);
+      } else if (type === 'loseLife') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.exponentialRampToValueAtTime(50, now + 0.4);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        osc.start(now); osc.stop(now + 0.4);
       }
     }
 
-    // Inicializar elementos
+    function updateLivesUI() {
+      livesEl.textContent = '❤️'.repeat(Math.max(0, lives));
+    }
+
     function initLevel() {
       coins = [];
       obstacles = [];
-      blackHoles = [];
+      superMagnets = [];
+      portals = [];
 
-      // 1. Generar Monedas
+      // 1. Monedas
       const numCoins = Math.min(5 + level, 12);
       for (let i = 0; i < numCoins; i++) {
-        let pos = getValidRandomPos(30);
+        let pos = getValidRandomPos(35);
         coins.push({ x: pos.x, y: pos.y, radius: 10 });
       }
 
-      // 2. Generar Obstáculos (con ángulos variados para rebotes impredecibles)
+      // 2. Obstáculos (Muros normales y Muros Destruibles)
       const numObstacles = Math.min(3 + level, 8);
       for (let i = 0; i < numObstacles; i++) {
-        let pos = getValidRandomPos(45);
+        let pos = getValidRandomPos(50);
+        let isBreakable = Math.random() < 0.4; // 40% muros de cristal destruibles
         obstacles.push({
           x: pos.x,
           y: pos.y,
-          w: 65 + Math.random() * 35,
-          h: 18,
-          vx: (Math.random() - 0.5) * (1 + level * 0.3),
-          angle: (Math.random() - 0.5) * Math.PI * 0.4
+          w: 70 + Math.random() * 30,
+          h: 22,
+          vx: (Math.random() - 0.5) * (1 + level * 0.25),
+          angle: (Math.random() - 0.5) * Math.PI * 0.5,
+          isBreakable: isBreakable,
+          hp: isBreakable ? 2 : Infinity,
+          maxHp: 2
         });
       }
 
-      // 3. Generar Agujeros Negros
+      // 3. Portales de Teletransporte (Aparecen desde Nivel 2)
       if (level >= 2) {
-        const numHoles = Math.min(Math.floor(level / 2), 3);
-        for (let i = 0; i < numHoles; i++) {
-          let pos = getValidRandomPos(60);
-          blackHoles.push({ x: pos.x, y: pos.y, radius: 25, pullForce: 0.4 });
-        }
+        let pos1 = getValidRandomPos(60);
+        let pos2 = getValidRandomPos(60);
+        portals = [
+          { x: pos1.x, y: pos1.y, radius: 22, color: '#00ff66', cooldown: 0 },
+          { x: pos2.x, y: pos2.y, radius: 22, color: '#ff00ee', cooldown: 0 }
+        ];
+      }
+
+      // 4. Súper Imán Temporizado
+      if (Math.random() < 0.6) {
+        let pos = getValidRandomPos(40);
+        superMagnets.push({ x: pos.x, y: pos.y, radius: 14 });
       }
     }
 
     function getValidRandomPos(margin) {
-      let pos;
-      let dist;
+      let pos, dist;
       do {
         pos = {
           x: margin + Math.random() * (WIDTH - margin * 2),
           y: margin + Math.random() * (HEIGHT - margin * 2)
         };
         dist = Math.hypot(pos.x - CENTER.x, pos.y - CENTER.y);
-      } while (dist < 130);
+      } while (dist < 140);
       return pos;
     }
 
-    // Eventos
+    // Controles
     canvas.addEventListener('mousedown', startDrag);
     canvas.addEventListener('mousemove', drag);
     canvas.addEventListener('mouseup', launch);
-
     canvas.addEventListener('touchstart', (e) => startDrag(e.touches[0]));
     canvas.addEventListener('touchmove', (e) => drag(e.touches[0]));
     canvas.addEventListener('touchend', launch);
 
     function startDrag(e) {
+      if (isGameOver || ball.isLaunched) return;
       initAudio();
-      if (ball.isLaunched) return;
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
-
       if (Math.hypot(mx - ball.x, my - ball.y) < ball.radius * 2.5) {
         ball.isDragging = true;
       }
@@ -253,7 +333,6 @@
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
-
       const dx = mx - CENTER.x;
       const dy = my - CENTER.y;
       const dist = Math.hypot(dx, dy);
@@ -274,16 +353,13 @@
       ball.isLaunched = true;
       ball.isReturning = false;
       ball.launchTime = Date.now();
+      ball.collectedCoinsThisLaunch = 0;
 
-      // Dirección opuesta al estiramiento
       const dx = CENTER.x - ball.x;
       const dy = CENTER.y - ball.y;
-      
-      const speedMultiplier = 0.22;
-      ball.vx = dx * speedMultiplier;
-      ball.vy = dy * speedMultiplier;
+      ball.vx = dx * 0.22;
+      ball.vy = dy * 0.22;
 
-      // Desviación anti-línea para evitar trayectorias repetitivas
       if (Math.abs(ball.vx) < 0.5) ball.vx = (Math.random() > 0.5 ? 2 : -2);
       if (Math.abs(ball.vy) < 0.5) ball.vy = (Math.random() > 0.5 ? 2 : -2);
 
@@ -305,17 +381,100 @@
       }
     }
 
-    // Actualización de física
+    // COLISIÓN EXACTA OBB (Oriented Bounding Box) PARA LOS 4 LADOS DE CADA MURO
+    function checkOBBCollision(ball, obs) {
+      // 1. Trasladar bola al origen local del obstáculo
+      const relX = ball.x - obs.x;
+      const relY = ball.y - obs.y;
+
+      // 2. Rotar la posición de la bola en sentido opuesto al ángulo del muro
+      const cos = Math.cos(-obs.angle);
+      const sin = Math.sin(-obs.angle);
+      const localX = relX * cos - relY * sin;
+      const localY = relX * sin + relY * cos;
+
+      // 3. Rotar el vector velocidad de la bola
+      const localVx = ball.vx * cos - ball.vy * sin;
+      const localVy = ball.vx * sin + ball.vy * cos;
+
+      // 4. Encontrar el punto más cercano en el rectángulo AABB local
+      const halfW = obs.w / 2;
+      const halfH = obs.h / 2;
+
+      const closestX = Math.max(-halfW, Math.min(halfW, localX));
+      const closestY = Math.max(-halfH, Math.min(halfH, localY));
+
+      const distX = localX - closestX;
+      const distY = localY - closestY;
+      const distance = Math.hypot(distX, distY);
+
+      if (distance < ball.radius) {
+        // Hubo colisión. Determinar si golpeó por lados horizontales o verticales (anchos o largos)
+        const overlapX = (halfW + ball.radius) - Math.abs(localX);
+        const overlapY = (halfH + ball.radius) - Math.abs(localY);
+
+        let newLocalVx = localVx;
+        let newLocalVy = localVy;
+
+        // Si overlapX es menor, el impacto fue en los bordes laterales/anchos (izquierda/derecha local)
+        if (overlapX < overlapY) {
+          newLocalVx = -localVx * 0.85;
+        } else {
+          // Impacto en los lados largos (arriba/abajo local)
+          newLocalVy = -localVy * 0.85;
+        }
+
+        // Rotar de vuelta la nueva velocidad al sistema global de coordenadas
+        const cosBack = Math.cos(obs.angle);
+        const sinBack = Math.sin(obs.angle);
+        ball.vx = newLocalVx * cosBack - newLocalVy * sinBack;
+        ball.vy = newLocalVx * sinBack + newLocalVy * cosBack;
+
+        // Separar la bola para evitar empotramiento
+        const pushDist = (ball.radius - distance) + 1;
+        if (distance > 0) {
+          const pushX = (distX / distance) * pushDist;
+          const pushY = (distY / distance) * pushDist;
+          ball.x += pushX * cosBack - pushY * sinBack;
+          ball.y += pushX * sinBack + pushY * cosBack;
+        }
+
+        return true;
+      }
+      return false;
+    }
+
+    // Actualizar Física
     function update() {
+      if (isGameOver) return;
+
+      // Actualizar temporizador de Súper Imán
+      if (ball.magnetActive) {
+        ball.magnetTimer -= 16;
+        if (ball.magnetTimer <= 0) ball.magnetActive = false;
+      }
+
+      // Enfriamiento de Portales
+      portals.forEach(p => { if (p.cooldown > 0) p.cooldown -= 16; });
+
       if (ball.isLaunched) {
         const elapsedTime = Date.now() - ball.launchTime;
         const remainingTime = Math.max(0, (ball.maxFlightTime - elapsedTime) / 1000);
         timerEl.textContent = remainingTime.toFixed(1);
 
-        // Regreso al origen tras 5 segundos
+        // Regreso tras 5 segundos
         if (elapsedTime >= ball.maxFlightTime && !ball.isReturning) {
           ball.isReturning = true;
-          playSound('return');
+          // Verificar si NO cogió ninguna moneda en este tiro -> Perder vida
+          if (ball.collectedCoinsThisLaunch === 0) {
+            lives--;
+            updateLivesUI();
+            playSound('loseLife');
+            if (lives <= 0) {
+              triggerGameOver();
+              return;
+            }
+          }
         }
 
         if (ball.isReturning) {
@@ -323,11 +482,10 @@
           const dy = CENTER.y - ball.y;
           const distToCenter = Math.hypot(dx, dy);
 
-          ball.vx += (dx / distToCenter) * 0.8;
-          ball.vy += (dy / distToCenter) * 0.8;
-
-          ball.vx *= 0.95;
-          ball.vy *= 0.95;
+          ball.vx += (dx / distToCenter) * 0.85;
+          ball.vy += (dy / distToCenter) * 0.85;
+          ball.vx *= 0.94;
+          ball.vy *= 0.94;
 
           if (distToCenter < 15) {
             ball.isLaunched = false;
@@ -341,17 +499,6 @@
         } else {
           ball.vx *= 0.995;
           ball.vy *= 0.995;
-
-          // Atracción de Agujeros Negros
-          blackHoles.forEach(hole => {
-            const hdx = hole.x - ball.x;
-            const hdy = hole.y - ball.y;
-            const hdist = Math.hypot(hdx, hdy);
-            if (hdist < 160 && hdist > 5) {
-              ball.vx += (hdx / hdist) * hole.pullForce;
-              ball.vy += (hdy / hdist) * hole.pullForce;
-            }
-          });
         }
 
         // Mover Bola
@@ -362,26 +509,24 @@
         trail.push({ x: ball.x, y: ball.y, alpha: 1 });
         if (trail.length > 15) trail.shift();
 
-        // Rebotes
-        if (ball.x < ball.radius) {
-          ball.x = ball.radius;
-          ball.vx *= -0.9;
-          playSound('bounce');
-        } else if (ball.x > WIDTH - ball.radius) {
-          ball.x = WIDTH - ball.radius;
-          ball.vx *= -0.9;
-          playSound('bounce');
-        }
+        // Rebotes en bordes de pantalla
+        if (ball.x < ball.radius) { ball.x = ball.radius; ball.vx *= -0.9; playSound('bounce'); }
+        else if (ball.x > WIDTH - ball.radius) { ball.x = WIDTH - ball.radius; ball.vx *= -0.9; playSound('bounce'); }
+        if (ball.y < ball.radius) { ball.y = ball.radius; ball.vy *= -0.9; playSound('bounce'); }
+        else if (ball.y > HEIGHT - ball.radius) { ball.y = HEIGHT - ball.radius; ball.vy *= -0.9; playSound('bounce'); }
 
-        if (ball.y < ball.radius) {
-          ball.y = ball.radius;
-          ball.vy *= -0.9;
-          playSound('bounce');
-        } else if (ball.y > HEIGHT - ball.radius) {
-          ball.y = HEIGHT - ball.radius;
-          ball.vy *= -0.9;
-          playSound('bounce');
-        }
+        // EFECTO SÚPER IMÁN: Atrae todas las monedas
+        coins.forEach(coin => {
+          if (ball.magnetActive) {
+            const mdx = ball.x - coin.x;
+            const mdy = ball.y - coin.y;
+            const mdist = Math.hypot(mdx, mdy);
+            if (mdist > 5) {
+              coin.x += (mdx / mdist) * 7;
+              coin.y += (mdy / mdist) * 7;
+            }
+          }
+        });
 
         // Colisión con Monedas
         coins.forEach((coin, index) => {
@@ -389,36 +534,67 @@
             coins.splice(index, 1);
             score += 10 * currentCombo;
             scoreEl.textContent = score;
+            ball.collectedCoinsThisLaunch++;
             createParticles(coin.x, coin.y, '#ffe600', 12);
             playSound('coin');
             currentCombo++;
             comboEl.textContent = `x${currentCombo}`;
 
-            if (coins.length === 0) {
-              nextLevel();
+            if (coins.length === 0) nextLevel();
+          }
+        });
+
+        // Colisión con Súper Imán
+        superMagnets.forEach((mag, index) => {
+          if (Math.hypot(ball.x - mag.x, ball.y - mag.y) < ball.radius + mag.radius) {
+            superMagnets.splice(index, 1);
+            ball.magnetActive = true;
+            ball.magnetTimer = 3500; // 3.5 segundos de atracción
+            createParticles(mag.x, mag.y, '#00f0ff', 15);
+            playSound('magnet');
+          }
+        });
+
+        // TELETRANSPORTE POR PORTALES
+        if (portals.length === 2 && portals[0].cooldown <= 0 && portals[1].cooldown <= 0) {
+          portals.forEach((p, idx) => {
+            if (Math.hypot(ball.x - p.x, ball.y - p.y) < ball.radius + p.radius) {
+              const other = portals[1 - idx];
+              ball.x = other.x;
+              ball.y = other.y;
+              portals[0].cooldown = 400; // Evitar loop infinito
+              portals[1].cooldown = 400;
+              createParticles(p.x, p.y, p.color, 15);
+              createParticles(other.x, other.y, other.color, 15);
+              playSound('portal');
+            }
+          });
+        }
+
+        // COLISIÓN MEJORADA CON MUROS (Lados anchos y largos)
+        obstacles.forEach((obs, index) => {
+          if (checkOBBCollision(ball, obs)) {
+            if (obs.isBreakable) {
+              obs.hp--;
+              createParticles(ball.x, ball.y, '#00e5ff', 8);
+              playSound('bounce');
+              if (obs.hp <= 0) {
+                obstacles.splice(index, 1);
+                createParticles(obs.x, obs.y, '#00e5ff', 20);
+                playSound('break');
+              }
+            } else {
+              createParticles(ball.x, ball.y, '#ff0055', 6);
+              playSound('bounce');
             }
           }
         });
 
-        // Colisión con Obstáculos
-        obstacles.forEach(obs => {
-          if (
-            ball.x > obs.x - obs.w / 2 - ball.radius &&
-            ball.x < obs.x + obs.w / 2 + ball.radius &&
-            ball.y > obs.y - obs.h / 2 - ball.radius &&
-            ball.y < obs.y + obs.h / 2 + ball.radius
-          ) {
-            ball.vx = -ball.vx * 0.85 + (Math.random() - 0.5) * 2;
-            ball.vy = -ball.vy * 0.85 + (Math.random() - 0.5) * 2;
-            createParticles(ball.x, ball.y, '#ff0055', 8);
-            playSound('bounce');
-          }
-        });
       } else {
         timerEl.textContent = "5.0";
       }
 
-      // Mover Obstáculos dinámicos
+      // Mover Muros
       obstacles.forEach(obs => {
         obs.x += obs.vx;
         if (obs.x < obs.w / 2 || obs.x > WIDTH - obs.w / 2) obs.vx *= -1;
@@ -433,10 +609,33 @@
       });
     }
 
-    // Cambio de Nivel
+    function triggerGameOver() {
+      isGameOver = true;
+      finalScoreEl.textContent = score;
+      gameOverScreen.classList.add('show');
+    }
+
+    function restartGame() {
+      score = 0;
+      level = 1;
+      lives = 3;
+      isGameOver = false;
+      scoreEl.textContent = score;
+      updateLivesUI();
+      gameOverScreen.classList.remove('show');
+      
+      ball.isLaunched = false;
+      ball.isReturning = false;
+      ball.x = CENTER.x;
+      ball.y = CENTER.y;
+      ball.vx = 0;
+      ball.vy = 0;
+
+      initLevel();
+    }
+
     function nextLevel() {
       level++;
-      levelEl.textContent = level;
       levelMsg.classList.add('show');
       setTimeout(() => levelMsg.classList.remove('show'), 1200);
 
@@ -450,12 +649,12 @@
       initLevel();
     }
 
-    // Renderizado
+    // Dibujado
     function draw() {
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
-      // Fondo
-      ctx.strokeStyle = 'rgba(0, 240, 255, 0.05)';
+      // Fondo Cuadrícula
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.04)';
       ctx.lineWidth = 1;
       for (let i = 0; i < WIDTH; i += 40) {
         ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, HEIGHT); ctx.stroke();
@@ -464,7 +663,7 @@
         ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(WIDTH, j); ctx.stroke();
       }
 
-      // Base Central
+      // Base Origen
       ctx.beginPath();
       ctx.arc(CENTER.x, CENTER.y, 22, 0, Math.PI * 2);
       ctx.strokeStyle = ball.isReturning ? '#ff007f' : '#00f0ff';
@@ -473,29 +672,60 @@
       ctx.shadowColor = ball.isReturning ? '#ff007f' : '#00f0ff';
       ctx.stroke();
 
-      // Agujeros Negros
-      blackHoles.forEach(hole => {
+      // Portales de Teletransporte
+      portals.forEach(p => {
         ctx.beginPath();
-        ctx.arc(hole.x, hole.y, hole.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#000';
-        ctx.strokeStyle = '#7928ca';
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.strokeStyle = p.color;
         ctx.lineWidth = 4;
         ctx.shadowBlur = 20;
-        ctx.shadowColor = '#7928ca';
-        ctx.fill();
+        ctx.shadowColor = p.color;
         ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.fill();
       });
 
-      // Obstáculos
-      ctx.fillStyle = '#ff0055';
-      ctx.shadowColor = '#ff0055';
-      ctx.shadowBlur = 12;
+      // Muros
       obstacles.forEach(obs => {
         ctx.save();
         ctx.translate(obs.x, obs.y);
         ctx.rotate(obs.angle);
-        ctx.fillRect(-obs.w / 2, -obs.h / 2, obs.w, obs.h);
+
+        if (obs.isBreakable) {
+          // Muro destruible de cristal (Cian)
+          ctx.fillStyle = obs.hp === 2 ? 'rgba(0, 229, 255, 0.85)' : 'rgba(0, 229, 255, 0.45)';
+          ctx.strokeStyle = '#00e5ff';
+          ctx.lineWidth = 2;
+          ctx.shadowColor = '#00e5ff';
+          ctx.shadowBlur = 12;
+          ctx.fillRect(-obs.w / 2, -obs.h / 2, obs.w, obs.h);
+          ctx.strokeRect(-obs.w / 2, -obs.h / 2, obs.w, obs.h);
+        } else {
+          // Muro sólido normal (Magenta)
+          ctx.fillStyle = '#ff0055';
+          ctx.shadowColor = '#ff0055';
+          ctx.shadowBlur = 12;
+          ctx.fillRect(-obs.w / 2, -obs.h / 2, obs.w, obs.h);
+        }
         ctx.restore();
+      });
+
+      // Súper Imán
+      superMagnets.forEach(mag => {
+        ctx.beginPath();
+        ctx.arc(mag.x, mag.y, mag.radius, 0, Math.PI * 2);
+        ctx.fillStyle = '#00f0ff';
+        ctx.shadowColor = '#00f0ff';
+        ctx.shadowBlur = 15;
+        ctx.fill();
+        ctx.fillStyle = '#05050d';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🧲', mag.x, mag.y);
       });
 
       // Monedas
@@ -524,7 +754,11 @@
       trail.forEach(t => {
         ctx.beginPath();
         ctx.arc(t.x, t.y, ball.radius * 0.6, 0, Math.PI * 2);
-        ctx.fillStyle = ball.isReturning ? `rgba(255, 0, 127, ${t.alpha})` : `rgba(0, 240, 255, ${t.alpha})`;
+        ctx.fillStyle = ball.magnetActive
+          ? `rgba(0, 240, 255, ${t.alpha})`
+          : ball.isReturning
+          ? `rgba(255, 0, 127, ${t.alpha})`
+          : `rgba(0, 240, 255, ${t.alpha})`;
         ctx.shadowBlur = 0;
         ctx.fill();
         t.alpha -= 0.06;
@@ -533,9 +767,9 @@
       // Bola
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-      ctx.fillStyle = ball.isReturning ? '#ff007f' : '#00f0ff';
-      ctx.shadowColor = ball.isReturning ? '#ff007f' : '#00f0ff';
-      ctx.shadowBlur = 15;
+      ctx.fillStyle = ball.magnetActive ? '#00e5ff' : ball.isReturning ? '#ff007f' : '#00f0ff';
+      ctx.shadowColor = ball.magnetActive ? '#00e5ff' : ball.isReturning ? '#ff007f' : '#00f0ff';
+      ctx.shadowBlur = 18;
       ctx.fill();
 
       // Partículas
@@ -549,15 +783,21 @@
       });
     }
 
-    // Bucle
     function loop() {
       update();
       draw();
       requestAnimationFrame(loop);
     }
 
+    updateLivesUI();
     initLevel();
     loop();
   </script>
 </body>
 </html>
+"""
+
+with open("juego_neon_antigravedad_ultra.html", "w", encoding="utf-8") as f:
+    f.write(html_code)
+
+print("Actualización Ultra completada.")
