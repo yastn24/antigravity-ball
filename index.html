@@ -1,1 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Juego de Antigravedad - Regreso al Origen</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: #0d1117;
+      color: #f0f6fc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      color: #58a6ff;
+    }
+    p {
+      font-size: 0.9rem;
+      color: #8b949e;
+    }
+    #canvas-container {
+      position: relative;
+      border: 2px solid #30363d;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      background-color: #161b22;
+    }
+    canvas {
+      display: block;
+      cursor: crosshair;
+    }
+    .controls {
+      margin-top: 12px;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      background: #21262d;
+      padding: 8px 16px;
+      border-radius: 8px;
+    }
+    label {
+      font-size: 0.85rem;
+      color: #c9d1d9;
+    }
+    input[type="range"] {
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
 
+  <header>
+    <h1>Física de Antigravedad / Retorno</h1>
+    <p>Haz clic sobre la bola, arrastra para apuntar y suelta para lanzar</p>
+  </header>
+
+  <div id="canvas-container">
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+  </div>
+
+  <div class="controls">
+    <label>
+      Fuerza de Retorno:
+      <input type="range" id="gravitySlider" min="0.01" max="0.15" step="0.005" value="0.04" />
+    </label>
+    <label>
+      Fricción (Aire):
+      <input type="range" id="frictionSlider" min="0.95" max="0.999" step="0.001" value="0.985" />
+    </label>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const gravitySlider = document.getElementById('gravitySlider');
+    const frictionSlider = document.getElementById('frictionSlider');
+
+    // Punto de origen fijo
+    const origin = { x: canvas.width / 2, y: canvas.height / 2 };
+
+    // Propiedades de la bola
+    const ball = {
+      x: origin.x,
+      y: origin.y,
+      vx: 0,
+      vy: 0,
+      radius: 16,
+      isDragging: false,
+      isLaunched: false
+    };
+
+    // Coordenadas del ratón al arrastrar
+    let dragPos = { x: origin.x, y: origin.y };
+
+    // Eventos de ratón
+    canvas.addEventListener('mousedown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const dist = Math.hypot(mouseX - ball.x, mouseY - ball.y);
+      if (dist <= ball.radius + 10) {
+        ball.isDragging = true;
+        ball.isLaunched = false;
+        ball.vx = 0;
+        ball.vy = 0;
+        dragPos.x = mouseX;
+        dragPos.y = mouseY;
+      }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (ball.isDragging) {
+        const rect = canvas.getBoundingClientRect();
+        dragPos.x = e.clientX - rect.left;
+        dragPos.y = e.clientY - rect.top;
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (ball.isDragging) {
+        ball.isDragging = false;
+        ball.isLaunched = true;
+        // La velocidad de lanzamiento depende del vector de arrastre (efecto resorte)
+        ball.vx = (origin.x - dragPos.x) * 0.15;
+        ball.vy = (origin.y - dragPos.y) * 0.15;
+      }
+    });
+
+    function update() {
+      const returnForce = parseFloat(gravitySlider.value);
+      const friction = parseFloat(frictionSlider.value);
+
+      if (ball.isLaunched) {
+        // Calcular vector de atracción hacia el origen (Antigravedad/Atracción Central)
+        const dx = origin.x - ball.x;
+        const dy = origin.y - ball.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance > 1) {
+          // Aceleración proporcional hacia el centro
+          ball.vx += (dx / distance) * (distance * returnForce * 0.1);
+          ball.vy += (dy / distance) * (distance * returnForce * 0.1);
+        }
+
+        // Aplicar fricción (resistencia del aire)
+        ball.vx *= friction;
+        ball.vy *= friction;
+
+        // Actualizar posición
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        // Detener la bola si llega muy cerca del centro con baja velocidad
+        if (distance < 3 && Math.hypot(ball.vx, ball.vy) < 0.2) {
+          ball.x = origin.x;
+          ball.y = origin.y;
+          ball.vx = 0;
+          ball.vy = 0;
+          ball.isLaunched = false;
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Dibujar punto de origen
+      ctx.beginPath();
+      ctx.arc(origin.x, origin.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = '#f85149';
+      ctx.fill();
+
+      // Dibujar línea de estiramiento al arrastrar
+      if (ball.isDragging) {
+        ctx.beginPath();
+        ctx.moveTo(origin.x, origin.y);
+        ctx.lineTo(dragPos.x, dragPos.y);
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Dibujar órbita/línea de regreso si está en el aire
+      if (ball.isLaunched) {
+        ctx.beginPath();
+        ctx.moveTo(ball.x, ball.y);
+        ctx.lineTo(origin.x, origin.y);
+        ctx.strokeStyle = 'rgba(88, 166, 255, 0.2)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Dibujar bola
+      ctx.beginPath();
+      const currentX = ball.isDragging ? dragPos.x : ball.x;
+      const currentY = ball.isDragging ? dragPos.y : ball.y;
+      ctx.arc(currentX, currentY, ball.radius, 0, Math.PI * 2);
+      ctx.fillStyle = ball.isDragging ? '#79c0ff' : '#a5d6ff';
+      ctx.fill();
+      ctx.strokeStyle = '#388bfd';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    gameLoop();
+  </script>
+</body>
+</html>
