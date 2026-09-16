@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Juego de Antigravedad - Partículas y Monedas</title>
+  <title>Juego de Antigravedad - Monedas Aleatorias y Físicas Pulidas</title>
   <style>
     * {
       box-sizing: border-box;
@@ -70,7 +70,7 @@
 
   <header>
     <h1>Física de Antigravedad</h1>
-    <p>¡Recolecta las monedas doradas evitando los obstáculos!</p>
+    <p>¡Recolecta las monedas y evita atascarlas en los obstáculos!</p>
     <div class="score-board">PUNTOS: <span id="scoreText">0</span></div>
   </header>
 
@@ -115,11 +115,11 @@
 
     let dragPos = { x: origin.x, y: origin.y };
 
-    // Arreglos para efectos visuales (Estela y explosión de partículas)
+    // Efectos visuales
     let trail = [];
     let particles = [];
 
-    // Lista de obstáculos
+    // Obstáculos
     const obstacles = [
       { x: 220, y: 150, w: 40, h: 200 },
       { x: 540, y: 150, w: 40, h: 200 },
@@ -127,22 +127,44 @@
       { x: 320, y: 390, w: 160, h: 30 }
     ];
 
-    // Monedas coleccionables
     let coins = [];
+    const TOTAL_COINS = 6;
 
-    function spawnCoins() {
-      coins = [
-        { x: 150, y: 120, radius: 10, collected: false },
-        { x: 650, y: 120, radius: 10, collected: false },
-        { x: 150, y: 380, radius: 10, collected: false },
-        { x: 650, y: 380, radius: 10, collected: false },
-        { x: 400, y: 50,  radius: 10, collected: false },
-        { x: 400, y: 450, radius: 10, collected: false }
-      ];
+    // Generar monedas en lugares aleatorios válidos (fuera de obstáculos y del centro)
+    function spawnRandomCoins() {
+      coins = [];
+      let attempts = 0;
+
+      while (coins.length < TOTAL_COINS && attempts < 500) {
+        attempts++;
+        const rx = Math.random() * (canvas.width - 60) + 30;
+        const ry = Math.random() * (canvas.height - 60) + 30;
+
+        // Validar no estar dentro del punto de origen
+        if (Math.hypot(rx - origin.x, ry - origin.y) < 50) continue;
+
+        // Validar no solapar ningún obstáculo
+        let insideObstacle = false;
+        for (let obs of obstacles) {
+          if (
+            rx + 15 > obs.x &&
+            rx - 15 < obs.x + obs.w &&
+            ry + 15 > obs.y &&
+            ry - 15 < obs.y + obs.h
+          ) {
+            insideObstacle = true;
+            break;
+          }
+        }
+
+        if (!insideObstacle) {
+          coins.push({ x: rx, y: ry, radius: 10, collected: false });
+        }
+      }
     }
-    spawnCoins();
 
-    // Crear estallido de partículas (al agarrar moneda o chocar)
+    spawnRandomCoins();
+
     function createExplosion(x, y, color, count = 12) {
       for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
@@ -194,7 +216,7 @@
       }
     });
 
-    // Colisión Bola vs Obstáculo
+    // SISTEMA DE REBOTE CORREGIDO SÍN BUGS
     function checkObstacleCollision(obs) {
       const closestX = Math.max(obs.x, Math.min(ball.x, obs.x + obs.w));
       const closestY = Math.max(obs.y, Math.min(ball.y, obs.y + obs.h));
@@ -204,21 +226,33 @@
       const distance = Math.hypot(dx, dy);
 
       if (distance < ball.radius) {
-        const overlapX = ball.radius - Math.abs(dx);
-        const overlapY = ball.radius - Math.abs(dy);
+        // Calcular la penetración en los 4 ejes
+        const overlapLeft = (ball.x + ball.radius) - obs.x;
+        const overlapRight = (obs.x + obs.w) - (ball.x - ball.radius);
+        const overlapTop = (ball.y + ball.radius) - obs.y;
+        const overlapBottom = (obs.y + obs.h) - (ball.y - ball.radius);
 
-        if (overlapX < overlapY) {
-          ball.vx *= -0.8;
-          ball.x += dx > 0 ? overlapX : -overlapX;
-        } else {
-          ball.vy *= -0.8;
-          ball.y += dy > 0 ? overlapY : -overlapY;
+        const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+
+        // Expulsar la bola de la pared e invertir el vector de velocidad correspondiente
+        if (minOverlap === overlapLeft) {
+          ball.x = obs.x - ball.radius;
+          ball.vx = -Math.abs(ball.vx) * 0.75;
+        } else if (minOverlap === overlapRight) {
+          ball.x = obs.x + obs.w + ball.radius;
+          ball.vx = Math.abs(ball.vx) * 0.75;
+        } else if (minOverlap === overlapTop) {
+          ball.y = obs.y - ball.radius;
+          ball.vy = -Math.abs(ball.vy) * 0.75;
+        } else if (minOverlap === overlapBottom) {
+          ball.y = obs.y + obs.h + ball.radius;
+          ball.vy = Math.abs(ball.vy) * 0.75;
         }
+
         createExplosion(closestX, closestY, '#58a6ff', 6);
       }
     }
 
-    // Colisión Bola vs Monedas
     function checkCoinCollision() {
       coins.forEach(coin => {
         if (!coin.collected) {
@@ -232,8 +266,9 @@
         }
       });
 
-      if (coins.every(c => c.collected)) {
-        setTimeout(spawnCoins, 1000);
+      // Si se recolectaron todas las monedas, generar una nueva tanda aleatoria
+      if (coins.length > 0 && coins.every(c => c.collected)) {
+        setTimeout(spawnRandomCoins, 400);
       }
     }
 
@@ -242,11 +277,10 @@
       const friction = parseFloat(frictionSlider.value);
 
       if (ball.isLaunched) {
-        // Guardar posición para la estela de neón
         trail.push({ x: ball.x, y: ball.y, alpha: 1.0 });
         if (trail.length > 20) trail.shift();
 
-        // Fuerza de antigravedad
+        // Fuerza hacia el origen
         const dx = origin.x - ball.x;
         const dy = origin.y - ball.y;
         const distance = Math.hypot(dx, dy);
@@ -262,20 +296,32 @@
         ball.x += ball.vx;
         ball.y += ball.vy;
 
-        // Rebotar con bordes de la pantalla
-        if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
-          ball.vx *= -0.8;
+        // Bordes de la pantalla
+        if (ball.x - ball.radius < 0) {
+          ball.x = ball.radius;
+          ball.vx = Math.abs(ball.vx) * 0.8;
           createExplosion(ball.x, ball.y, '#388bfd', 5);
         }
-        if (ball.y - ball.radius < 0 || ball.y + ball.radius > canvas.height) {
-          ball.vy *= -0.8;
+        if (ball.x + ball.radius > canvas.width) {
+          ball.x = canvas.width - ball.radius;
+          ball.vx = -Math.abs(ball.vx) * 0.8;
+          createExplosion(ball.x, ball.y, '#388bfd', 5);
+        }
+        if (ball.y - ball.radius < 0) {
+          ball.y = ball.radius;
+          ball.vy = Math.abs(ball.vy) * 0.8;
+          createExplosion(ball.x, ball.y, '#388bfd', 5);
+        }
+        if (ball.y + ball.radius > canvas.height) {
+          ball.y = canvas.height - ball.radius;
+          ball.vy = -Math.abs(ball.vy) * 0.8;
           createExplosion(ball.x, ball.y, '#388bfd', 5);
         }
 
         obstacles.forEach(checkObstacleCollision);
         checkCoinCollision();
 
-        // Detener al volver al origen
+        // Detener al regresar al centro
         if (distance < 4 && Math.hypot(ball.vx, ball.vy) < 0.3) {
           ball.x = origin.x;
           ball.y = origin.y;
@@ -287,11 +333,9 @@
         }
       }
 
-      // Desvanecer estela
       trail.forEach(t => t.alpha -= 0.04);
       trail = trail.filter(t => t.alpha > 0);
 
-      // Actualizar partículas
       particles.forEach(p => {
         p.x += p.vx;
         p.y += p.vy;
@@ -303,7 +347,7 @@
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 1. Dibujar Punto de Origen
+      // Origen
       ctx.beginPath();
       ctx.arc(origin.x, origin.y, 6, 0, Math.PI * 2);
       ctx.fillStyle = '#f85149';
@@ -312,7 +356,7 @@
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // 2. Dibujar Obstáculos
+      // Obstáculos
       ctx.fillStyle = '#238636';
       ctx.strokeStyle = '#2ea043';
       ctx.lineWidth = 2;
@@ -321,7 +365,7 @@
         ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
       });
 
-      // 3. Dibujar Monedas
+      // Monedas
       coins.forEach(coin => {
         if (!coin.collected) {
           ctx.beginPath();
@@ -334,7 +378,7 @@
         }
       });
 
-      // 4. Dibujar Estela de Neón de la Bola
+      // Estela
       for (let i = 0; i < trail.length; i++) {
         const point = trail[i];
         ctx.beginPath();
@@ -343,7 +387,7 @@
         ctx.fill();
       }
 
-      // 5. Dibujar Partículas de Explosiones
+      // Partículas
       particles.forEach(p => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
@@ -353,7 +397,7 @@
         ctx.globalAlpha = 1.0;
       });
 
-      // 6. Línea de Lanzamiento
+      // Línea de Lanzamiento
       if (ball.isDragging) {
         ctx.beginPath();
         ctx.moveTo(origin.x, origin.y);
@@ -365,7 +409,7 @@
         ctx.setLineDash([]);
       }
 
-      // 7. Vector de Retorno
+      // Vector de Retorno
       if (ball.isLaunched) {
         ctx.beginPath();
         ctx.moveTo(ball.x, ball.y);
@@ -375,7 +419,7 @@
         ctx.stroke();
       }
 
-      // 8. Dibujar la Bola Principales con resplandor
+      // Bola
       ctx.beginPath();
       const currentX = ball.isDragging ? dragPos.x : ball.x;
       const currentY = ball.isDragging ? dragPos.y : ball.y;
