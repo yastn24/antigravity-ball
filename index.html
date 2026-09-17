@@ -146,7 +146,7 @@
       <div class="hud-box">PUNTOS: <span id="score">0</span></div>
       <div class="hud-box" style="color: #ffe600;">⭐ <span id="total-stars-hud">0</span></div>
       <div class="hud-box" style="color: #ff007f;">VIDAS: <span id="lives">❤️❤️❤️</span></div>
-      <div class="hud-box" style="color: #00f0ff;">TIEMPO: <span id="timer">5.0</span>s</div>
+      <div class="hud-box" style="color: #00f0ff;">TIEMPO NIVEL: <span id="timer">0.0</span>s</div>
     </div>
 
     <!-- Pantallas -->
@@ -172,7 +172,7 @@
 
     <div id="victory-screen" class="overlay-screen hidden">
       <h1>¡NIVEL COMPLETADO!</h1>
-      <p>¡Lanzamiento magistral!</p>
+      <p>¡Nivel completado con éxito!</p>
       <div id="stars-earned-display" style="font-size: 36px; margin: 10px 0;">⭐⭐⭐</div>
       <p id="victory-time-info" style="font-size: 14px; color: #00f0ff;"></p>
       <button class="btn" onclick="loadNextLevel()">Siguiente Nivel</button>
@@ -207,7 +207,7 @@
 
     const TOTAL_LEVELS = 10;
 
-    // Configuración de requerimientos de estrellas por nivel
+    // Requerimientos de estrellas para desbloquear cada nivel
     const LEVEL_REQUIREMENTS = {
       1: 0,
       2: 2,
@@ -221,21 +221,20 @@
       10: 27
     };
 
-    // Tiempos justos por nivel (en segundos)
+    // Tiempo justo por nivel (en segundos)
     const FAIR_TIMES = {
-      1: 2.5,
-      2: 3.0,
-      3: 3.5,
-      4: 4.0,
-      5: 4.5,
-      6: 5.0,
-      7: 5.5,
-      8: 6.0,
-      9: 6.5,
-      10: 7.0
+      1: 15.0,
+      2: 18.0,
+      3: 20.0,
+      4: 22.0,
+      5: 25.0,
+      6: 28.0,
+      7: 30.0,
+      8: 32.0,
+      9: 35.0,
+      10: 40.0
     };
 
-    // Estrellas guardadas por nivel: { 1: 3, 2: 0, ... }
     let levelStars = JSON.parse(localStorage.getItem('levelStars')) || {};
 
     let score = 0;
@@ -255,7 +254,7 @@
       isReturning: false,
       launchTime: 0,
       returnStartTime: 0,
-      maxFlightTime: 15000, // Tiempo máximo extendido para soportar los rangos de calificación
+      maxFlightTime: 8000,
       collectedCoinsThisLaunch: 0,
       magnetActive: false,
       magnetTimer: 0,
@@ -266,7 +265,7 @@
 
     let obstacles = [];
     let coins = [];
-    let powerups = []; // tipo: 'magnet', 'shield', 'time'
+    let powerups = [];
     let portals = [];
     let particles = [];
     let trail = [];
@@ -338,7 +337,6 @@
       if (totalStarsDisplayEl) totalStarsDisplayEl.textContent = total;
     }
 
-    // UI & Screens
     function hideAllScreens() {
       startScreen.classList.add('hidden');
       levelSelectScreen.classList.add('hidden');
@@ -421,10 +419,7 @@
       ball.vx = 0; ball.vy = 0;
       ball.shieldActive = false;
       ball.magnetActive = false;
-      const fairTime = FAIR_TIMES[currentLevel] || 5.0;
-      const maxTimeAllowed = fairTime + 5.0; // Límite máximo de tiempo útil
-      ball.maxFlightTime = maxTimeAllowed * 1000;
-      timerEl.textContent = fairTime.toFixed(1);
+      ball.maxFlightTime = 8000;
     }
 
     function initLevelData() {
@@ -590,6 +585,10 @@
     function update() {
       if (!isPlaying) return;
 
+      // Tiempo transcurrido del nivel
+      const totalElapsedSec = (Date.now() - levelStartTime) / 1000;
+      timerEl.textContent = totalElapsedSec.toFixed(1);
+
       if (ball.magnetActive) {
         ball.magnetTimer -= 16;
         if (ball.magnetTimer <= 0) ball.magnetActive = false;
@@ -598,11 +597,9 @@
       portals.forEach(p => { if (p.cooldown > 0) p.cooldown -= 16; });
 
       if (ball.isLaunched) {
-        const elapsedTime = Date.now() - ball.launchTime;
-        const remainingTime = Math.max(0, (ball.maxFlightTime - elapsedTime) / 1000);
-        timerEl.textContent = remainingTime.toFixed(1);
+        const launchElapsed = Date.now() - ball.launchTime;
 
-        if (elapsedTime >= ball.maxFlightTime && !ball.isReturning) {
+        if (launchElapsed >= ball.maxFlightTime && !ball.isReturning) {
           ball.isReturning = true;
           ball.returnStartTime = Date.now();
 
@@ -669,11 +666,10 @@
               isPlaying = false;
               playSound('win');
 
-              const completionTimeSec = (Date.now() - ball.launchTime) / 1000;
-              const fairTime = FAIR_TIMES[currentLevel] || 5.0;
+              const completionTimeSec = (Date.now() - levelStartTime) / 1000;
+              const fairTime = FAIR_TIMES[currentLevel] || 15.0;
               const starsEarned = calculateStars(completionTimeSec, fairTime);
 
-              // Guardar el mejor resultado para este nivel
               const previousStars = levelStars[currentLevel] || 0;
               if (starsEarned > previousStars) {
                 levelStars[currentLevel] = starsEarned;
@@ -683,7 +679,7 @@
               updateStarsUI();
 
               starsEarnedDisplay.textContent = '⭐'.repeat(starsEarned) + '☆'.repeat(3 - starsEarned);
-              victoryTimeInfo.textContent = `Tiempo: ${completionTimeSec.toFixed(1)}s (Objetivo 3⭐: ≤${fairTime.toFixed(1)}s)`;
+              victoryTimeInfo.textContent = `Tiempo completado: ${completionTimeSec.toFixed(1)}s (Objetivo 3⭐: ≤${fairTime.toFixed(1)}s)`;
               victoryScreen.classList.remove('hidden');
             }
           }
