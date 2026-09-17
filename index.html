@@ -1,5 +1,4 @@
-# Correcting physics for oriented box collision (OBB/AABB) and adding features
-html_code = """<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -163,10 +162,18 @@ html_code = """<!DOCTYPE html>
       isLaunched: false,
       isReturning: false,
       launchTime: 0,
+      returnStartTime: 0,
       maxFlightTime: 5000,
       collectedCoinsThisLaunch: 0,
       magnetActive: false,
       magnetTimer: 0
+    };
+
+    // Configuración del imán
+    const MAGNET_CONFIG = {
+      durationMs: 2000,
+      range: 130,
+      pullSpeed: 5
     };
 
     // Arrays de objetos
@@ -208,12 +215,12 @@ html_code = """<!DOCTYPE html>
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
         osc.start(now); osc.stop(now + 0.2);
       } else if (type === 'bounce') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(120, now);
-        osc.frequency.exponentialRampToValueAtTime(40, now + 0.08);
-        gain.gain.setValueAtTime(0.15, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
-        osc.start(now); osc.stop(now + 0.08);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(45, now + 0.06);
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+        osc.start(now); osc.stop(now + 0.06);
       } else if (type === 'break') {
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(300, now);
@@ -249,24 +256,32 @@ html_code = """<!DOCTYPE html>
       livesEl.textContent = '❤️'.repeat(Math.max(0, lives));
     }
 
+    function resetBallToCenter() {
+      ball.isLaunched = false;
+      ball.isReturning = false;
+      ball.x = CENTER.x;
+      ball.y = CENTER.y;
+      ball.vx = 0;
+      ball.vy = 0;
+      timerEl.textContent = "5.0";
+    }
+
     function initLevel() {
       coins = [];
       obstacles = [];
       superMagnets = [];
       portals = [];
 
-      // 1. Monedas
       const numCoins = Math.min(5 + level, 12);
       for (let i = 0; i < numCoins; i++) {
         let pos = getValidRandomPos(35);
         coins.push({ x: pos.x, y: pos.y, radius: 10 });
       }
 
-      // 2. Obstáculos (Muros normales y Muros Destruibles)
       const numObstacles = Math.min(3 + level, 8);
       for (let i = 0; i < numObstacles; i++) {
         let pos = getValidRandomPos(50);
-        let isBreakable = Math.random() < 0.4; // 40% muros de cristal destruibles
+        let isBreakable = Math.random() < 0.4;
         obstacles.push({
           x: pos.x,
           y: pos.y,
@@ -280,7 +295,6 @@ html_code = """<!DOCTYPE html>
         });
       }
 
-      // 3. Portales de Teletransporte (Aparecen desde Nivel 2)
       if (level >= 2) {
         let pos1 = getValidRandomPos(60);
         let pos2 = getValidRandomPos(60);
@@ -290,7 +304,6 @@ html_code = """<!DOCTYPE html>
         ];
       }
 
-      // 4. Súper Imán Temporizado
       if (Math.random() < 0.6) {
         let pos = getValidRandomPos(40);
         superMagnets.push({ x: pos.x, y: pos.y, radius: 14 });
@@ -381,23 +394,18 @@ html_code = """<!DOCTYPE html>
       }
     }
 
-    // COLISIÓN EXACTA OBB (Oriented Bounding Box) PARA LOS 4 LADOS DE CADA MURO
     function checkOBBCollision(ball, obs) {
-      // 1. Trasladar bola al origen local del obstáculo
       const relX = ball.x - obs.x;
       const relY = ball.y - obs.y;
 
-      // 2. Rotar la posición de la bola en sentido opuesto al ángulo del muro
       const cos = Math.cos(-obs.angle);
       const sin = Math.sin(-obs.angle);
       const localX = relX * cos - relY * sin;
       const localY = relX * sin + relY * cos;
 
-      // 3. Rotar el vector velocidad de la bola
       const localVx = ball.vx * cos - ball.vy * sin;
       const localVy = ball.vx * sin + ball.vy * cos;
 
-      // 4. Encontrar el punto más cercano en el rectángulo AABB local
       const halfW = obs.w / 2;
       const halfH = obs.h / 2;
 
@@ -409,28 +417,23 @@ html_code = """<!DOCTYPE html>
       const distance = Math.hypot(distX, distY);
 
       if (distance < ball.radius) {
-        // Hubo colisión. Determinar si golpeó por lados horizontales o verticales (anchos o largos)
         const overlapX = (halfW + ball.radius) - Math.abs(localX);
         const overlapY = (halfH + ball.radius) - Math.abs(localY);
 
         let newLocalVx = localVx;
         let newLocalVy = localVy;
 
-        // Si overlapX es menor, el impacto fue en los bordes laterales/anchos (izquierda/derecha local)
         if (overlapX < overlapY) {
           newLocalVx = -localVx * 0.85;
         } else {
-          // Impacto en los lados largos (arriba/abajo local)
           newLocalVy = -localVy * 0.85;
         }
 
-        // Rotar de vuelta la nueva velocidad al sistema global de coordenadas
         const cosBack = Math.cos(obs.angle);
         const sinBack = Math.sin(obs.angle);
         ball.vx = newLocalVx * cosBack - newLocalVy * sinBack;
         ball.vy = newLocalVx * sinBack + newLocalVy * cosBack;
 
-        // Separar la bola para evitar empotramiento
         const pushDist = (ball.radius - distance) + 1;
         if (distance > 0) {
           const pushX = (distX / distance) * pushDist;
@@ -444,17 +447,14 @@ html_code = """<!DOCTYPE html>
       return false;
     }
 
-    // Actualizar Física
     function update() {
       if (isGameOver) return;
 
-      // Actualizar temporizador de Súper Imán
       if (ball.magnetActive) {
         ball.magnetTimer -= 16;
         if (ball.magnetTimer <= 0) ball.magnetActive = false;
       }
 
-      // Enfriamiento de Portales
       portals.forEach(p => { if (p.cooldown > 0) p.cooldown -= 16; });
 
       if (ball.isLaunched) {
@@ -462,10 +462,10 @@ html_code = """<!DOCTYPE html>
         const remainingTime = Math.max(0, (ball.maxFlightTime - elapsedTime) / 1000);
         timerEl.textContent = remainingTime.toFixed(1);
 
-        // Regreso tras 5 segundos
         if (elapsedTime >= ball.maxFlightTime && !ball.isReturning) {
           ball.isReturning = true;
-          // Verificar si NO cogió ninguna moneda en este tiro -> Perder vida
+          ball.returnStartTime = Date.now();
+
           if (ball.collectedCoinsThisLaunch === 0) {
             lives--;
             updateLivesUI();
@@ -482,53 +482,49 @@ html_code = """<!DOCTYPE html>
           const dy = CENTER.y - ball.y;
           const distToCenter = Math.hypot(dx, dy);
 
+          const returnElapsedTime = Date.now() - ball.returnStartTime;
+          if (returnElapsedTime >= 3000) {
+            resetBallToCenter();
+            return;
+          }
+
           ball.vx += (dx / distToCenter) * 0.85;
           ball.vy += (dy / distToCenter) * 0.85;
           ball.vx *= 0.94;
           ball.vy *= 0.94;
 
           if (distToCenter < 15) {
-            ball.isLaunched = false;
-            ball.isReturning = false;
-            ball.x = CENTER.x;
-            ball.y = CENTER.y;
-            ball.vx = 0;
-            ball.vy = 0;
-            timerEl.textContent = "5.0";
+            resetBallToCenter();
           }
         } else {
           ball.vx *= 0.995;
           ball.vy *= 0.995;
         }
 
-        // Mover Bola
         ball.x += ball.vx;
         ball.y += ball.vy;
 
-        // Estela
         trail.push({ x: ball.x, y: ball.y, alpha: 1 });
         if (trail.length > 15) trail.shift();
 
-        // Rebotes en bordes de pantalla
         if (ball.x < ball.radius) { ball.x = ball.radius; ball.vx *= -0.9; playSound('bounce'); }
         else if (ball.x > WIDTH - ball.radius) { ball.x = WIDTH - ball.radius; ball.vx *= -0.9; playSound('bounce'); }
         if (ball.y < ball.radius) { ball.y = ball.radius; ball.vy *= -0.9; playSound('bounce'); }
         else if (ball.y > HEIGHT - ball.radius) { ball.y = HEIGHT - ball.radius; ball.vy *= -0.9; playSound('bounce'); }
 
-        // EFECTO SÚPER IMÁN: Atrae todas las monedas
         coins.forEach(coin => {
           if (ball.magnetActive) {
             const mdx = ball.x - coin.x;
             const mdy = ball.y - coin.y;
             const mdist = Math.hypot(mdx, mdy);
-            if (mdist > 5) {
-              coin.x += (mdx / mdist) * 7;
-              coin.y += (mdy / mdist) * 7;
+            
+            if (mdist <= MAGNET_CONFIG.range && mdist > 5) {
+              coin.x += (mdx / mdist) * MAGNET_CONFIG.pullSpeed;
+              coin.y += (mdy / mdist) * MAGNET_CONFIG.pullSpeed;
             }
           }
         });
 
-        // Colisión con Monedas
         coins.forEach((coin, index) => {
           if (Math.hypot(ball.x - coin.x, ball.y - coin.y) < ball.radius + coin.radius) {
             coins.splice(index, 1);
@@ -544,26 +540,24 @@ html_code = """<!DOCTYPE html>
           }
         });
 
-        // Colisión con Súper Imán
         superMagnets.forEach((mag, index) => {
           if (Math.hypot(ball.x - mag.x, ball.y - mag.y) < ball.radius + mag.radius) {
             superMagnets.splice(index, 1);
             ball.magnetActive = true;
-            ball.magnetTimer = 3500; // 3.5 segundos de atracción
+            ball.magnetTimer = MAGNET_CONFIG.durationMs;
             createParticles(mag.x, mag.y, '#00f0ff', 15);
             playSound('magnet');
           }
         });
 
-        // TELETRANSPORTE POR PORTALES
         if (portals.length === 2 && portals[0].cooldown <= 0 && portals[1].cooldown <= 0) {
           portals.forEach((p, idx) => {
             if (Math.hypot(ball.x - p.x, ball.y - p.y) < ball.radius + p.radius) {
               const other = portals[1 - idx];
               ball.x = other.x;
               ball.y = other.y;
-              portals[0].cooldown = 400; // Evitar loop infinito
-              portals[1].cooldown = 400;
+              portals[0].cooldown = 450;
+              portals[1].cooldown = 450;
               createParticles(p.x, p.y, p.color, 15);
               createParticles(other.x, other.y, other.color, 15);
               playSound('portal');
@@ -571,7 +565,6 @@ html_code = """<!DOCTYPE html>
           });
         }
 
-        // COLISIÓN MEJORADA CON MUROS (Lados anchos y largos)
         obstacles.forEach((obs, index) => {
           if (checkOBBCollision(ball, obs)) {
             if (obs.isBreakable) {
@@ -594,13 +587,11 @@ html_code = """<!DOCTYPE html>
         timerEl.textContent = "5.0";
       }
 
-      // Mover Muros
       obstacles.forEach(obs => {
         obs.x += obs.vx;
         if (obs.x < obs.w / 2 || obs.x > WIDTH - obs.w / 2) obs.vx *= -1;
       });
 
-      // Partículas
       particles.forEach((p, i) => {
         p.x += p.vx;
         p.y += p.vy;
@@ -624,13 +615,7 @@ html_code = """<!DOCTYPE html>
       updateLivesUI();
       gameOverScreen.classList.remove('show');
       
-      ball.isLaunched = false;
-      ball.isReturning = false;
-      ball.x = CENTER.x;
-      ball.y = CENTER.y;
-      ball.vx = 0;
-      ball.vy = 0;
-
+      resetBallToCenter();
       initLevel();
     }
 
@@ -639,21 +624,13 @@ html_code = """<!DOCTYPE html>
       levelMsg.classList.add('show');
       setTimeout(() => levelMsg.classList.remove('show'), 1200);
 
-      ball.isLaunched = false;
-      ball.isReturning = false;
-      ball.x = CENTER.x;
-      ball.y = CENTER.y;
-      ball.vx = 0;
-      ball.vy = 0;
-
+      resetBallToCenter();
       initLevel();
     }
 
-    // Dibujado
     function draw() {
       ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
-      // Fondo Cuadrícula
       ctx.strokeStyle = 'rgba(0, 240, 255, 0.04)';
       ctx.lineWidth = 1;
       for (let i = 0; i < WIDTH; i += 40) {
@@ -663,7 +640,6 @@ html_code = """<!DOCTYPE html>
         ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(WIDTH, j); ctx.stroke();
       }
 
-      // Base Origen
       ctx.beginPath();
       ctx.arc(CENTER.x, CENTER.y, 22, 0, Math.PI * 2);
       ctx.strokeStyle = ball.isReturning ? '#ff007f' : '#00f0ff';
@@ -672,7 +648,6 @@ html_code = """<!DOCTYPE html>
       ctx.shadowColor = ball.isReturning ? '#ff007f' : '#00f0ff';
       ctx.stroke();
 
-      // Portales de Teletransporte
       portals.forEach(p => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
@@ -688,14 +663,12 @@ html_code = """<!DOCTYPE html>
         ctx.fill();
       });
 
-      // Muros
       obstacles.forEach(obs => {
         ctx.save();
         ctx.translate(obs.x, obs.y);
         ctx.rotate(obs.angle);
 
         if (obs.isBreakable) {
-          // Muro destruible de cristal (Cian)
           ctx.fillStyle = obs.hp === 2 ? 'rgba(0, 229, 255, 0.85)' : 'rgba(0, 229, 255, 0.45)';
           ctx.strokeStyle = '#00e5ff';
           ctx.lineWidth = 2;
@@ -704,7 +677,6 @@ html_code = """<!DOCTYPE html>
           ctx.fillRect(-obs.w / 2, -obs.h / 2, obs.w, obs.h);
           ctx.strokeRect(-obs.w / 2, -obs.h / 2, obs.w, obs.h);
         } else {
-          // Muro sólido normal (Magenta)
           ctx.fillStyle = '#ff0055';
           ctx.shadowColor = '#ff0055';
           ctx.shadowBlur = 12;
@@ -713,7 +685,6 @@ html_code = """<!DOCTYPE html>
         ctx.restore();
       });
 
-      // Súper Imán
       superMagnets.forEach(mag => {
         ctx.beginPath();
         ctx.arc(mag.x, mag.y, mag.radius, 0, Math.PI * 2);
@@ -728,7 +699,6 @@ html_code = """<!DOCTYPE html>
         ctx.fillText('🧲', mag.x, mag.y);
       });
 
-      // Monedas
       ctx.fillStyle = '#ffe600';
       ctx.shadowColor = '#ffe600';
       ctx.shadowBlur = 10;
@@ -738,7 +708,6 @@ html_code = """<!DOCTYPE html>
         ctx.fill();
       });
 
-      // Resorte
       if (ball.isDragging) {
         ctx.beginPath();
         ctx.moveTo(CENTER.x, CENTER.y);
@@ -750,7 +719,6 @@ html_code = """<!DOCTYPE html>
         ctx.stroke();
       }
 
-      // Estela
       trail.forEach(t => {
         ctx.beginPath();
         ctx.arc(t.x, t.y, ball.radius * 0.6, 0, Math.PI * 2);
@@ -764,7 +732,6 @@ html_code = """<!DOCTYPE html>
         t.alpha -= 0.06;
       });
 
-      // Bola
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
       ctx.fillStyle = ball.magnetActive ? '#00e5ff' : ball.isReturning ? '#ff007f' : '#00f0ff';
@@ -772,7 +739,6 @@ html_code = """<!DOCTYPE html>
       ctx.shadowBlur = 18;
       ctx.fill();
 
-      // Partículas
       particles.forEach(p => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
@@ -795,9 +761,3 @@ html_code = """<!DOCTYPE html>
   </script>
 </body>
 </html>
-"""
-
-with open("juego_neon_antigravedad_ultra.html", "w", encoding="utf-8") as f:
-    f.write(html_code)
-
-print("Actualización Ultra completada.")
